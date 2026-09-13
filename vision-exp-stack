@@ -79,7 +79,9 @@ do_up() {
     ensure_model
     ensure_image
     launch_cluster "$(serve_script)"
-    do_tail_head
+
+    log "server starting on ${CLUSTER_NODES} (container: ${CONTAINER_NAME})"
+    log "to follow the head log, run: ./${SELF} tail-head"
 }
 
 build_apply_mod_args() {
