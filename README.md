@@ -14,7 +14,7 @@ You need the `hf` CLI. If it's missing, `up`/`heal` will print install instructi
 **1. Clone this repo**
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/oselivanov/ollie-gb10-serving-stacks.git
 cd ollie-gb10-serving-stacks
 ```
 <br>
