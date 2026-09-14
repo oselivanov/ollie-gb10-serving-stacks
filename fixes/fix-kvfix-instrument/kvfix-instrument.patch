@@ -1,0 +1,85 @@
+--- a/vllm/v1/core/kv_cache_coordinator.py
++++ b/vllm/v1/core/kv_cache_coordinator.py
+@@ -605,6 +605,20 @@
+         # can be a multiple of hash_block_size.
+         self.hash_block_size = hash_block_size
+         self.dcp_world_size = dcp_world_size
++        # === [kvfix-instrument] dump cache group geometry ===
++        logger.info("[kvfix] HYBRID group dump: scheduler=%s hash=%s dcp=%s prefix_retain=%s",
++                     scheduler_block_size, hash_block_size, dcp_world_size,
++                     getattr(kv_cache_config, "prefix_cache_retention_interval", None))
++        for _gi, _g in enumerate(kv_cache_config.kv_cache_groups):
++            _spec = _g.kv_cache_spec
++            _mgr = self.single_type_managers[_gi]
++            logger.info("[kvfix]   group %d: layer_names=%s spec=%s block_size=%s prefix_cacheable=%s is_eagle=%s",
++                         _gi, _g.layer_names, type(_spec).__name__,
++                         getattr(_mgr, "block_size", None), _g.kv_cache_spec.prefix_cacheable,
++                         getattr(_g, "is_eagle_group", None))
++            for _att in ("sliding_window", "tokens_per_state", "window_size"):
++                if hasattr(_spec, _att):
++                    logger.info("[kvfix]     %s=%s", _att, getattr(_spec, _att))
+         # Only groups that participate in prefix caching must satisfy the
+         # divisibility constraint; groups that opt out (e.g. GLM-5.3-Flash kpool
+         # tail, block_size=kpool) are scratch buffers and excluded.
+@@ -775,6 +789,12 @@
+             # (``scheduler_block_size``); retention is passed separately so it
+             # can keep both the coarse segment tails and the fine replay
+             # boundary (which needs the fine value).
++            # === [kvfix-instrument] hybrid cache_blocks ===
++            logger.info("[kvfix] H cache_blocks req=%s grp=%s nct=%s align=%s final=%s nttc=%s use_eagle=%s bs=%s retain=%s num_reprefill=%s num_prompt=%s",
++                request.request_id, manager.kv_cache_group_id, num_computed_tokens,
++                cached_num_computed_tokens, locals().get("cached_num_finalized_computed_tokens"),
++                num_tokens_to_cache, manager.use_eagle, manager.block_size,
++                self.retention_interval, self.num_reprefillable_tokens, request.num_prompt_tokens)
+             manager.cache_blocks(
+                 request,
+                 num_tokens_to_cache,
+@@ -911,6 +931,10 @@
+         # prefix than the reconciled hit, it is an uncached common prefix across
+         # requests that a sparse-retention group hasn't cached yet.
+         num_uncached_common_prefix_tokens = longest_hit_length - hit_length
++        # === [kvfix-instrument] coordinator hit reconcile ===
++        logger.info("[kvfix] COORD hit reconciled=%s longest=%s uncached_sh_prefix=%s per_group=%s eagle_verified=%s",
++                     hit_length, longest_hit_length, num_uncached_common_prefix_tokens,
++                     {gi: hl for gi, hl in enumerate(hit_length_by_group) if hl}, sorted(eagle_verified))
+         cache_hit_blocks = tuple(
+             blocks if blocks is not None else [] for blocks in hit_blocks_by_group
+         )
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -485,6 +485,12 @@
+             reachable_boundaries=reachable_boundaries,
+             dcp_world_size=self.dcp_world_size,
+         )
++        # === [kvfix-instrument] base cache_blocks commit ===
++        _k = [i for i, _v in enumerate(block_mask) if _v] if block_mask is not None else None
++        logger.info("[kvfix] STM cache_blocks req=%s grp=%s nttc=%s ncached=%s nfull=%s bs=%s mask=%s keep=%s last=%s reachable=%s",
++                     request.request_id, self.kv_cache_group_id, num_tokens, num_cached_blocks,
++                     num_full_blocks, self.block_size, (block_mask is not None),
++                     len(_k) if _k is not None else "all", _k[-1] if _k else None, reachable_boundaries)
+         self.block_pool.cache_full_blocks(
+             request=request,
+             blocks=self.req_to_blocks[request.request_id],
+@@ -1025,6 +1031,9 @@
+                 for computed in computed_blocks:
+                     computed.pop()
+         hit_length = len(computed_blocks[0]) * block_size
++        # === [kvfix-instrument] SWA hit ===
++        logger.info("[kvfix] SWA hit bs=%s max_len=%s contiguous=%s match=%s hit_len=%s group_ids=%s",
++                     block_size, max_length, sliding_window_contiguous_blocks, match_found, hit_length, kv_cache_group_ids)
+         return computed_blocks, hit_length
+ 
+     @classmethod
+@@ -1107,6 +1116,12 @@
+                 for j in range(max(start_block, end - need), min(end_block, end)):
+                     mask[j - start_block] = True
+ 
++        # === [kvfix-instrument] mask results ===
++        _kept = [i for i, _v in enumerate(mask) if _v] if mask is not None else None
++        if mask is not None:
++            logger.info("[kvfix] SWA mask start=%s end=%s bs=%s sw=%s eagle=%s align=%s retain=%s kept=%d last=%s",
++                         start_block, end_block, block_size, getattr(kv_cache_spec, "sliding_window", None),
++                         use_eagle, alignment_tokens, retention_interval, len(_kept), _kept[-1] if _kept else None)
+         return mask
+ 
+     def get_num_skipped_tokens(self, num_computed_tokens: int) -> int:

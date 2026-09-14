@@ -31,6 +31,11 @@ CLUSTER_NODES=192.168.100.10,192.168.100.11
 
 FIX_BROKEN_VISION=1
 FIX_DSPARK_K_5=1
+FIX_PREFIX_CACHE_DEDUPE=1
+FIX_PREFIX_REPLAY_TAIL=1
+
+FIX_PREFIX_CACHE_BOUNDFIX=0
+FIX_KVFIX_INSTRUMENT=0
 
 serve_script() {
     cat <<EOF
@@ -40,8 +45,11 @@ vllm serve ${MODEL} \\
     --host 0.0.0.0 \\
     --port ${PORT} \\
     --served-model-name default \\
-    --override-generation-config '{"temperature": 1.0, "top_p": 0.95}' \\
     --default-chat-template-kwargs '{"thinking":true,"reasoning_effort":"max"}' \\
+    --default-chat-template-kwargs.temperature=1.0 \\
+    --default-chat-template-kwargs.top_p=0.95 \\
+    --default-chat-template-kwargs.thinking=true --default-chat-template-kwargs.reasoning_effort=high \\
+    --default-chat-template-kwargs.drop_thinking=false \\
     --trust-remote-code \\
     --tensor-parallel-size 2 \\
     --kv-cache-dtype fp8 \\
@@ -49,7 +57,7 @@ vllm serve ${MODEL} \\
     --max-model-len 1048576 \\
     --max-num-seqs 12 \\
     --max-num-batched-tokens 2048 \\
-    --gpu-memory-utilization 0.86 \\
+    --gpu-memory-utilization 0.87 \\
     --enable-prefix-caching \\
     --async-scheduling \\
     --enable-chunked-prefill \\
@@ -91,6 +99,20 @@ build_apply_mod_args() {
     fi
     if [[ "${FIX_DSPARK_K_5}" == "1" && -d "${DIR}/fixes/fix-dspark-mtp-divisibility" ]]; then
         args+=(--apply-mod "${DIR}/fixes/fix-dspark-mtp-divisibility")
+    fi
+    if [[ "${FIX_PREFIX_REPLAY_TAIL}" == "1" && -d "${DIR}/fixes/fix-dsv4-prefix-replay-tail" ]]; then
+        args+=(--apply-mod "${DIR}/fixes/fix-dsv4-prefix-replay-tail")
+    fi
+    if [[ "${FIX_PREFIX_CACHE_DEDUPE}" == "1" && -d "${DIR}/fixes/fix-vllm-prefix-cache-dedupe" ]]; then
+        args+=(--apply-mod "${DIR}/fixes/fix-vllm-prefix-cache-dedupe")
+    fi
+
+    # Experimental
+    if [[ "${FIX_PREFIX_CACHE_BOUNDFIX}" == "1" && -d "${DIR}/fixes/fix-vllm-prefix-cache-boundfix" ]]; then
+        args+=(--apply-mod "${DIR}/fixes/fix-vllm-prefix-cache-boundfix")
+    fi
+    if [[ "${FIX_KVFIX_INSTRUMENT}" == "1" && -d "${DIR}/fixes/fix-kvfix-instrument" ]]; then
+        args+=(--apply-mod "${DIR}/fixes/fix-kvfix-instrument")
     fi
     printf '%s\n' "${args[@]}"
 }

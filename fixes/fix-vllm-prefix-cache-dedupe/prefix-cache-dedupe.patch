@@ -1,0 +1,20 @@
+--- a/vllm/v1/core/block_pool.py
++++ b/vllm/v1/core/block_pool.py
+@@ -290,6 +290,17 @@
+                 )
+                 removed_hashes = self._remove_cached_block_hashes(blk)
+                 self._emit_block_removed_events(removed_hashes)
++            # [kvfix-dedupe] Same-content duplicate guard: a re-computed
++            # position (hit-path drop / spec boundary) would otherwise
++            # insert a second block with the same (hash, group) while hits
++            # always return the first copy — the older copy then lingers
++            # forever, never touched. Both copies hold identical content
++            # (same hash chain), so drop the old mapping and keep one
++            # block per position.
++            _dup_old = self.cached_block_hash_to_block.get_one_block(
++                block_hash_with_group_id)
++            if _dup_old is not None and _dup_old is not blk:
++                self._maybe_evict_cached_block(_dup_old)
+             self._insert_block_hash(
+                 block_hash_with_group_id,
+                 blk,
