@@ -26,12 +26,12 @@ do_heal() {
 
 do_down() {
     log "-- stopping --"
-    "${LAUNCHER}" stop
+    "${LAUNCHER}" stop --name "${CONTAINER_NAME}"
 }
 
 do_status() {
     log "-- nodes status --"
-    "${LAUNCHER}" status 2>&1 || true
+    "${LAUNCHER}" status --name "${CONTAINER_NAME}" 2>&1 || true
 
     print_cache_size
 
