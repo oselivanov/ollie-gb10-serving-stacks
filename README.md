@@ -1,10 +1,15 @@
 # GB10 serving stacks by Ollie
 
-For now just **DeepSeek-V4-Flash-Vision-Exp** stack (stable, super fast, no looping, fixed vision) on a 2 x GB10.
+Dead simple to use: `git clone` -> **set nodes to run on** -> `./vision-exp-stack up`, see **quick start**.
 
-**The most important thing**: vision-exp-stack is a **runnable and configuration at the same time**, read it, it's a pretty simple script! :)
+<br>
 
-You need the `hf` CLI. If it's missing, `up`/`heal` will print install instructions (or run `pip install "huggingface_hub[cli]"`).
+The structure is partially inspired by **Gentoo ebuild system**, while it's still bash, it's easy to read and to add non-standard functionality. Stack scripts are **runnables and configuration at the same time**. Just open **vision-exp-stack** and poke around :)
+
+
+> **Requirements**: You will need the Hugging Face `hf` CLI. If it's missing, `up`/`heal` will print install instructions (or run `pip install "huggingface_hub[cli]"`).
+
+> **Note**: For now it's just **DeepSeek-V4-Flash-Vision-Exp** stack (stable, super fast, no looping, fixed vision) on a 2 x GB10.
 
 <br>
 
@@ -21,7 +26,7 @@ cd ollie-gb10-serving-stacks
 
 **2. Set your CLUSTER_NODES in the vision-exp-stack**
 
-**Note:** If you followed https://build.nvidia.com/spark/connect-two-sparks/stacked-sparks, they are already correct.
+If you followed https://build.nvidia.com/spark/connect-two-sparks/stacked-sparks, they are already set right.
 
 <br>
 
@@ -31,25 +36,35 @@ cd ollie-gb10-serving-stacks
 ./vision-exp-stack up
 ```
 
-`up` will handle everything: it fetches the launcher, downloads, copies the model + image to both nodes, and starts serving. If something goes wrong try `heal` command :)
+`up` will handle everything: it fetches the launcher (spark-vllm-docker by eugr), model and docker image if needed, then distribute to both nodes and starts serving. If something goes wrong try `heal` command :)
 
 <br>
 
 
-## Everything else
-
-### Commands
+## Commands
 
 | Command | What it does |
 |---|---|
-| `heal` | Force re-download + redistribute the model and ensure the image. Use it if a worker is missing the model/image. |
-| `up` | Ensure everything is ready, then start serving and follow the head log. |
+| `up` | Ensure everything is ready, then start serving. |
 | `down` | Stop it! |
 | `status` | Show node status, available KV Cache size, and the v1/models output. |
 | `tail-head` | Follow the head node's log. |
 | `tail-worker` | Ditto. |
 | `log` | Follow compact performance stats summary (pp, decode, etc). **My favorite!** |
 | `build-image` | Build a local Docker image (see below). |
+| `heal` | Force re-download + redistribute the model and ensure the image. Use it if a worker is missing the model/image. |
+
+<br>
+
+## Adding stacks
+
+Just point out your agent to any stack repo and ask it to build a stack out of it here. Something like DeepSeek v4 Flash 0731+ or Claude Opus will handle it well.
+
+Guidelines:
+
+1. No need to parametrize most of the vllm knobs as variables, just leave them in vllm template.
+2. No need to parametrize vllm env variables, just put export envs at the top of vllm template.
+3. Call existing commands in your own commands, add your custom code around.
 
 <br>
 
@@ -73,4 +88,4 @@ Then set `USE_LOCAL_IMAGE=1` at the top of `vision-exp-stack`.
 - **co-le** for prefix cache fixes and great cache pressure bench
 - **stu.miller** for prefix cache fixes
 
-- Don't remember where did I get speculative k=5 fix, but thank you, author! :)
+- Don't remember where did I get speculative k=5 fix for Vision Exp model, but thank you, author! :)
