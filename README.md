@@ -87,5 +87,4 @@ Then set `USE_LOCAL_IMAGE=1` at the top of `vision-exp-stack`.
 - **PILCOTHINK** for Dockerfile
 - **co-le** for prefix cache fixes and great cache pressure bench
 - **stu.miller** for prefix cache fixes
-
-- Don't remember where did I get speculative k=5 fix for Vision Exp model, but thank you, author! :)
+- **huxiaofengtiger** for speculative k=5 fix
