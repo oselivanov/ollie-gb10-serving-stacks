@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Request OpenAI Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        :root {
+            /* Solarized palette */
+            --base03: #002b36;
+            --base02: #073642;
+            --base01: #586e75;
+            --base00: #657b83;
+            --base0:  #839496;
+            --base1:  #93a1a1;
+            --base2:  #eee8d5;
+            --base3:  #fdf6e3;
+            --yellow: #b58900;
+            --orange: #cb4b16;
+            --red:    #dc322f;
+            --magenta:#d33682;
+            --violet: #6c71c4;
+            --blue:   #268bd2;
+            --cyan:   #2aa198;
+            --green:  #859900;
+
+            /* Semantic assignments — change only here */
+            --bg:          var(--base3);
+            --bg-raised:   var(--base2);
+            --border:      #d3cabc;
+            --text:        var(--base01);
+            --text-muted:  var(--base1);
+            --text-em:     var(--base02);
+
+            --accent-title:    var(--base01);
+            --accent-focus:    var(--blue);
+            --accent-section:  var(--base00);
+            --accent-stat:     var(--cyan);
+            --accent-ttft:     var(--cyan);
+            --accent-prefill:  var(--yellow);
+            --accent-tg:       var(--green);
+            --accent-output:   var(--base02);
+            --accent-thinking: var(--base00);
+            --accent-code:     var(--cyan);
+            --accent-header:   var(--base01);
+            --accent-running:  var(--green);
+            --accent-done:     var(--cyan);
+            --accent-error:    var(--red);
+            --bar-conn:        var(--violet);
+            --bar-ttft:        var(--yellow);
+            --bar-tg:          var(--blue);
+            --btn-start:       var(--blue);
+            --btn-stop:        var(--orange);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 10px;
+            min-height: 100vh;
+            font-size: 15px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: var(--accent-title);
+            font-size: 1.2em;
+        }
+
+        /* Section A - Parameters */
+        .params-section {
+            background: var(--bg-raised);
+            border-radius: 10px;
+            padding: 8px;
+            border: 1px solid var(--border);
+        }
+        .params-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .params-section input, .params-section textarea, .params-section select {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-em);
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .param-group { display: flex; align-items: center; gap: 5px; min-width: 0; }
+        .param-group label { font-size: 0.7em; color: var(--text-muted); white-space: nowrap; width: 58px; text-align: right; flex-shrink: 0; }
+        .param-group input, .param-group textarea { flex: 1; min-width: 0; }
+        .params-section input::placeholder { color: var(--text-muted); }
+        .params-section textarea {
+            min-height: 44px;
+            resize: vertical;
+            font-family: inherit;
+        }
+        .params-section input:focus, .params-section textarea:focus, .params-section select:focus {
+            outline: none;
+            border-color: var(--accent-focus);
+        }
+        .btn-group {
+            margin-top: 6px;
+            display: flex;
+            gap: 4px;
+        }
+        button {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .btn-start {
+            background: var(--btn-start);
+            color: var(--bg);
+        }
+        .btn-start:hover { filter: brightness(1.15); }
+        .btn-stop {
+            background: var(--btn-stop);
+            color: var(--base3);
+        }
+        .btn-stop:disabled {
+            background: var(--bg-raised);
+            color: var(--text-muted);
+            cursor: default;
+        }
+        .btn-clear {
+            background: var(--bg-raised);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .scenario-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+            flex-wrap: wrap;
+        }
+        .scenario-btn {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-em);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7em;
+            font-weight: normal;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .scenario-btn:hover {
+            border-color: var(--accent-focus);
+            color: var(--accent-focus);
+        }
+
+        /* Section B - Time Profiler */
+        .profiler-section {
+            background: var(--bg-raised);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+        }
+        .profiler-section h2 {
+            color: var(--accent-section);
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+        .profiler-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .profiler-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .profiler-bar-label {
+            width: 65px;
+            font-size: 0.75em;
+            color: var(--text-muted);
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .profiler-bar-container {
+            flex: 1;
+            height: 14px;
+            background: var(--bg);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+        .profiler-timeline {
+            position: absolute;
+            left: 0; top: 0; right: 0; bottom: 0;
+            transform-origin: left center;
+        }
+        .profiler-conn {
+            position: absolute;
+            top: 0; bottom: 0;
+            background: var(--bar-conn);
+        }
+        .profiler-ttft {
+            position: absolute;
+            top: 0; bottom: 0;
+            background: var(--bar-ttft);
+        }
+        .profiler-hist-bar {
+            position: absolute;
+            bottom: 0;
+        }
+        .profiler-bar-time {
+            width: 40px;
+            font-size: 0.7em;
+            color: var(--text-muted);
+            text-align: right;
+            align-self: center;
+            flex-shrink: 0;
+        }
+        .profiler-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        .profiler-stat {
+            background: var(--bg);
+            padding: 5px 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .profiler-stat .value {
+            font-size: 1em;
+            font-weight: bold;
+            color: var(--accent-stat);
+        }
+        .profiler-stat .label {
+            font-size: 0.7em;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* Section C - Parallel Streaming Blocks */
+        .streams-section {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
+        .stream-block {
+            background: var(--bg-raised);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .stream-header {
+            background: var(--bg);
+            padding: 7px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .stream-header h3 {
+            color: var(--accent-header);
+            margin-bottom: 5px;
+            font-size: 0.85em;
+        }
+        .stream-stats {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+        }
+        .stream-stat {
+            background: var(--bg-raised);
+            padding: 4px 5px;
+            border-radius: 3px;
+            text-align: center;
+        }
+        .stream-stat .value { font-size: 0.85em; font-weight: bold; }
+        .stream-stat.conn .value { color: var(--violet); }
+        .stream-stat.ttft .value { color: var(--accent-ttft); }
+        .stream-stat.pp .value   { color: var(--accent-prefill); }
+        .stream-stat.tg .value   { color: var(--accent-tg); }
+        .stream-stat.ctx .value  { color: var(--text-muted); }
+        .stream-stat .label { font-size: 0.65em; color: var(--text-muted); }
+        .stream-content {
+            padding: 8px;
+            min-height: 100px;
+            max-height: 100px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.7em;
+            line-height: 1.35;
+        }
+        .thinking-section {
+            color: var(--accent-thinking);
+            font-style: italic;
+            opacity: 0.85;
+            white-space: pre-wrap;
+            word-break: break-word;
+            padding-bottom: 6px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--bg-raised);
+        }
+        .output-section { color: var(--accent-output); }
+        .md-line, .md-li { margin: 1px 0; word-break: break-word; }
+        .md-gap { height: 0.4em; }
+        .md-h1 { color: var(--text-em); font-weight: bold; margin: 6px 0 2px; font-size: 1.05em; }
+        .md-h2 { color: var(--text);    font-weight: bold; margin: 5px 0 2px; }
+        .md-h3 { color: var(--base00);  font-weight: bold; margin: 4px 0 1px; }
+        .code-block {
+            background: var(--bg);
+            border: 1px solid var(--bg-raised);
+            border-radius: 4px;
+            padding: 6px 8px;
+            margin: 5px 0;
+            overflow-x: auto;
+            color: var(--accent-code);
+            white-space: pre;
+            font-size: 0.95em;
+            font-style: normal;
+        }
+        .code-lang { color: var(--text-muted); font-size: 0.8em; margin-bottom: 3px; font-style: normal; }
+        .svg-view-btn {
+            margin-top: 4px;
+            margin-bottom: 2px;
+            padding: 1px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            color: var(--accent-focus);
+            font-size: 0.75em;
+            font-weight: normal;
+            cursor: pointer;
+            display: inline-block;
+            font-family: inherit;
+        }
+        .svg-view-btn:hover { border-color: var(--accent-focus); background: var(--base2); }
+        .svg-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            margin-bottom: 2px;
+        }
+        .svg-actions .svg-view-btn {
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+        .svg-copy-btn {
+            padding: 1px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            color: var(--accent-focus);
+            font-size: 0.75em;
+            font-weight: normal;
+            cursor: pointer;
+            display: inline-block;
+            font-family: inherit;
+        }
+        .svg-copy-btn:hover { border-color: var(--accent-focus); background: var(--base2); }
+        .svg-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .svg-modal {
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: 60vw;
+            height: 60vh;
+            min-width: 320px;
+            min-height: 240px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        }
+        .svg-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85em;
+            color: var(--text-em);
+        }
+        .svg-modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.3em;
+            line-height: 1;
+            padding: 0 2px;
+            cursor: pointer;
+        }
+        .svg-modal-close:hover { color: var(--accent-error); }
+        .svg-modal-body {
+            padding: 12px;
+            overflow: auto;
+            background: #fff;
+            border-radius: 0 0 8px 8px;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .svg-modal-body svg {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+        .inline-code {
+            background: var(--bg);
+            color: var(--accent-code);
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .output-section strong { color: var(--text-em); }
+        .output-section em     { color: var(--violet); font-style: italic; }
+        .radio-seg { display: flex; gap: 2px; flex: 1; min-width: 0; }
+        .radio-seg input[type="radio"] { display: none; }
+        .radio-seg input[type="radio"] + label {
+            flex: 1;
+            padding: 1px 0;
+            text-align: center;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.75em;
+            color: var(--text-muted);
+            background: var(--bg);
+            user-select: none;
+        }
+        .radio-seg input[type="radio"]:checked + label {
+            background: var(--btn-start);
+            color: var(--bg);
+            border-color: var(--btn-start);
+        }
+        .msg-bubble {
+            max-width: 70%;
+            margin-left: auto;
+            border-radius: 5px;
+            padding: 3px 8px;
+            margin-bottom: 5px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-style: normal;
+        }
+        .msg-bubble.system { color: var(--text-muted); border: 1px solid var(--border); }
+        .msg-bubble.user   { color: var(--text-em);   border: 1px solid var(--accent-focus); }
+        .round-sep { border-top: 1px solid var(--border); margin: 5px 0; }
+        .interrupted { color: var(--text-muted); font-style: italic; margin-top: 8px; }
+        .stream-status {
+            padding: 4px 8px;
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            font-size: 0.72em;
+        }
+        .stream-status.idle    { color: var(--text-muted); }
+        .stream-status.running { color: var(--accent-running); }
+        .stream-status.done    { color: var(--accent-done); }
+        .stream-status.error   { color: var(--accent-error); }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--base00); }
+        
+        .top-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+        .top-row .params-section {
+            flex-shrink: 0;
+            margin-bottom: 0;
+        }
+        .top-row .profiler-section {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        .top-row .params-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-row">
+    <!-- Section A: Parameters -->
+    <div class="params-section" id="paramsSection">
+        <div class="params-grid" id="paramsGrid">
+            <div class="param-group"><label>URL</label><input type="text" id="serverUrl" value="http://localhost:8000/v1"></div>
+            <div class="param-group"><label>API Key</label><input type="password" id="apiKey"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+                <div class="param-group"><label>Context</label><input type="number" id="contextSize" value="0" min="0" max="10000"></div>
+                <div class="param-group"><label>Max tokens</label><input type="number" id="generateTokens" value="0" min="0" max="20000"></div>
+                <div class="param-group"><label>Parallel</label><div class="radio-seg">
+                    <input type="radio" id="par1" name="parallel" value="1"><label for="par1">1</label>
+                    <input type="radio" id="par2" name="parallel" value="2"><label for="par2">2</label>
+                    <input type="radio" id="par3" name="parallel" value="3"><label for="par3">3</label>
+                    <input type="radio" id="par4" name="parallel" value="4" checked><label for="par4">4</label>
+                    <input type="radio" id="par5" name="parallel" value="5"><label for="par5">5</label>
+                    <input type="radio" id="par6" name="parallel" value="6"><label for="par6">6</label>
+                </div></div>
+                <div class="param-group"><label>Model</label><input type="text" id="model" value="qwen"></div>
+            </div>
+            <div style="display:flex;gap:4px">
+                <div class="param-group"><label>Thinking</label><input type="checkbox" id="enableThinking" style="width:auto;flex:none"></div>
+                <div class="param-group"><label>Effort</label><select id="reasoningEffort"><option value="low" selected>low</option><option value="high">high</option><option value="max">max</option></select></div>
+            </div>
+            <div class="param-group full-width" style="align-items:flex-start"><label style="padding-top:3px">System</label><textarea id="systemPrompt" style="min-height:0;height:28px">You are a helpful assistant.</textarea></div>
+            <div class="scenario-row" style="margin-left:63px">
+                <span style="font-size:0.7em;color:var(--text-muted);margin-right:2px">Scenarios:</span>
+                <button type="button" class="scenario-btn" onclick="setScenario('count3')">Count 1-100 x3</button>
+                <button type="button" class="scenario-btn" onclick="setScenario('django')">Django site</button>
+                <button type="button" class="scenario-btn" onclick="setScenario('rand50')">50 random strings</button>
+                <button type="button" class="scenario-btn" onclick="setScenario('pelican')">Pelican SVG</button>
+            </div>
+            <div class="param-group full-width" style="align-items:flex-start"><label style="padding-top:3px">Message</label><textarea id="message" style="height:45px">Write a quick sort</textarea></div>
+        </div>
+        <div class="btn-group" style="align-items:center;margin-left:63px">
+            <button class="btn-start" id="startBtn" onclick="nextRound()">Start</button>
+            <button class="btn-stop" onclick="stopTests()" id="stopBtn" disabled>Stop</button>
+            <button class="btn-clear" onclick="clearAll()">Clear</button>
+            <label style="font-size:0.7em;color:var(--text-muted);white-space:nowrap;margin-left:auto">Continuous</label>
+            <input type="checkbox" id="continuous" style="width:auto;flex:none">
+        </div>
+    </div>
+    
+    <!-- Section B: Time Profiler -->
+    <div class="profiler-section" id="profilerSection">
+        <h2>A - Requests Timeline</h2>
+        <div class="profiler-chart" id="profilerChart">
+            <!-- per-stream rows added dynamically -->
+        </div>
+        <div class="profiler-stats-grid">
+            <div class="profiler-stat">
+                <div class="value" id="totalTime">0.00s</div>
+                <div class="label">Total Time</div>
+            </div>
+            <div class="profiler-stat">
+                <div class="value" id="avgPrefill">-</div>
+                <div class="label">Avg Prefill</div>
+            </div>
+            <div class="profiler-stat">
+                <div class="value" id="completedReqs">0</div>
+                <div class="label">Completed</div>
+            </div>
+            <div class="profiler-stat">
+                <div class="value" id="totalTokens">0</div>
+                <div class="label">Total Tokens</div>
+            </div>
+            <div class="profiler-stat">
+                <div class="value" id="throughput">0.0</div>
+                <div class="label">Throughput (tok/s)</div>
+            </div>
+        </div>
+    </div>
+    </div><!-- end .top-row -->
+
+    <!-- Section C: Parallel Streaming Blocks -->
+    <div class="streams-section" id="streamsSection">
+        <!-- Stream blocks will be generated dynamically -->
+    </div>
+
+    <!-- Section D: SVG Modal -->
+    <div class="svg-modal-overlay hidden" id="svgModal" onclick="if(event.target===this)closeSvgModal()">
+        <div class="svg-modal">
+            <div class="svg-modal-header">
+                <span>SVG Preview</span>
+                <button class="svg-modal-close" onclick="closeSvgModal()">×</button>
+            </div>
+            <div class="svg-modal-body" id="svgModalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        let abortControllers = [];
+        let isRunning = false;
+        let globalStartTime = null;
+        let streamTimings = {};      // {id: {start, firstToken?, end?}}
+        let streamTokenCounts = {};  // {id: running token count}
+        let streamTypeHistory = {}; // {id: {blocks:['thinking'|'text'|'code'], curCount, curType}}
+        let streamBarState = {};    // {id: {barCount, curBar}} DOM state per stream
+        let streamContentType = {}; // {id: current content type} updated per token
+        let streamCurrentOutput = {}; // {id: partial outputText} for "Next" interrupt
+        let streamAutoScroll = {};   // {id: bool} false when user has scrolled up
+        let streamMessages = {};     // {id: messages[]} sent in current round, for abort recovery
+        let streamSavedHistory = {}; // {id: {messages, outputText}} persists across runs for continuous continuation
+        let continuousNext = false;  // true during the brief window between Next abort and startTests()
+        const SPEED_BUCKET_TICKS = 4; // ticks per finalized block (400ms)
+        let globalTgWindow = [];     // {time, tokens} rolling window for total throughput
+        const GLOBAL_TG_WINDOW_MS = 3000;
+
+        // Pre-tokenization regex matching cl100k_base / qwen2 split rules.
+        // Does not apply BPE merges, so long uncommon words are slightly over-counted,
+        // but for code and English prose accuracy is ~90–95% vs actual qwen2 tokenizer.
+        const TOKEN_RE = /(?:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+/giu;
+
+        function countTokens(text) {
+            return (text.match(TOKEN_RE) || []).length;
+        }
+        
+        // Generate prompt with specified context size (approximate tokens).
+        // Latin words tokenize to ~1.5 BPE tokens each (e.g. "lorem" → "lor"+"em"),
+        // so generate contextTokens/1.5 words to hit the target actual token count.
+        function generateContext(contextTokens) {
+            const words = ['lorem', 'ipsum', 'dolor', 'sit', 'amet', 'consectetur', 'adipiscing', 'elit',
+                          'sed', 'do', 'eiusmod', 'tempor', 'incididunt', 'ut', 'labore', 'et', 'dolore',
+                          'magna', 'aliqua', 'enim', 'ad', 'minim', 'veniam', 'quis', 'nostrud',
+                          'exercitation', 'ullamco', 'laboris', 'nisi', 'aliquip', 'ex', 'ea', 'commodo'];
+            const result = [];
+            const wordCount = Math.round(contextTokens / 1.5);
+            for (let i = 0; i < wordCount; i++) {
+                result.push(words[Math.floor(Math.random() * words.length)]);
+            }
+            return result.join(' ');
+        }
+        
+        // ----- Markdown formatter --------------------------------------------------------
+
+        let svgSourceCounter = 0;
+        const svgSources = {};
+
+        function openSvgModal(key) {
+            const body = document.getElementById('svgModalBody');
+            const src = svgSources[key];
+            if (!body || !src) return;
+            body.innerHTML = src;
+            document.getElementById('svgModal').classList.remove('hidden');
+        }
+
+        async function copySvg(key, btn) {
+            const src = svgSources[key];
+            if (!src) return;
+            try {
+                await navigator.clipboard.writeText(src);
+            } catch (e) {
+                // Fallback for non-secure contexts
+                const ta = document.createElement('textarea');
+                ta.value = src;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch (_) {}
+                ta.remove();
+            }
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied';
+                setTimeout(() => { btn.textContent = orig; }, 1200);
+            }
+        }
+
+        function closeSvgModal() {
+            document.getElementById('svgModal').classList.add('hidden');
+        }
+
+        function escapeHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function applyInline(s) {
+            return s
+                .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+                .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+                .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+        }
+
+        function simpleMarkdown(text) {
+            const lines = text.split('\n');
+            let html = '';
+            let inCode = false, codeLang = '', codeLines = [];
+            for (const line of lines) {
+                if (!inCode && line.startsWith('```')) {
+                    inCode = true;
+                    codeLang = escapeHtml(line.slice(3).trim());
+                    codeLines = [];
+                    continue;
+                }
+                if (inCode) {
+                    if (line.startsWith('```')) {
+                        inCode = false;
+                        let blockHtml = `<div class="code-block">${codeLang ? `<div class="code-lang">${codeLang}</div>` : ''}<code>${escapeHtml(codeLines.join('\n'))}</code>`;
+                        if (codeLang.trim().toLowerCase() === 'svg') {
+                            const key = ++svgSourceCounter;
+                            svgSources[key] = codeLines.join('\n');
+                            blockHtml += `<div class="svg-actions"><button type="button" class="svg-view-btn" onclick="openSvgModal(${key})">🖼 View SVG</button><button type="button" class="svg-copy-btn" onclick="copySvg(${key}, this)">📋 Copy</button></div>`;
+                        }
+                        html += blockHtml + '</div>';
+                        codeLines = []; codeLang = '';
+                    } else {
+                        codeLines.push(line);
+                    }
+                    continue;
+                }
+                const e = escapeHtml(line);
+                if (line.startsWith('### '))     html += `<div class="md-h3">${applyInline(e.slice(4))}</div>`;
+                else if (line.startsWith('## ')) html += `<div class="md-h2">${applyInline(e.slice(3))}</div>`;
+                else if (line.startsWith('# '))  html += `<div class="md-h1">${applyInline(e.slice(2))}</div>`;
+                else if (/^[-*] /.test(line))    html += `<div class="md-li">• ${applyInline(e.slice(2))}</div>`;
+                else if (line === '')             html += '<div class="md-gap"></div>';
+                else                              html += `<div class="md-line">${applyInline(e)}</div>`;
+            }
+            if (inCode && codeLines.length > 0) {
+                html += `<div class="code-block">${codeLang ? `<div class="code-lang">${codeLang}</div>` : ''}<code>${escapeHtml(codeLines.join('\n'))}▌</code></div>`;
+            }
+            return html;
+        }
+
+        function onKeyDown(e) {
+            if (e.key === 'Escape') closeSvgModal();
+        }
+        document.addEventListener('keydown', onKeyDown);
+
+        // ----- Profiler timeline ---------------------------------------------------------
+
+        function createProfilerRow(id) {
+            const row = document.createElement('div');
+            row.className = 'profiler-bar-row';
+            row.innerHTML = `
+                <div class="profiler-bar-container" id="bar-${id}">
+                    <div class="profiler-timeline" id="timeline-${id}">
+                        <div class="profiler-conn" id="seg-conn-${id}" style="left:0;width:0"></div>
+                        <div class="profiler-ttft" id="seg-ttft-${id}" style="left:0;width:0"></div>
+                    </div>
+                </div>
+                <div class="profiler-bar-time" id="bar-time-${id}">—</div>
+            `;
+            return row;
+        }
+
+        function setupProfilerRows(count) {
+            const chart = document.getElementById('profilerChart');
+            chart.innerHTML = '';
+            for (let i = 1; i <= count; i++) chart.appendChild(createProfilerRow(i));
+        }
+
+        function typeColor(type) {
+            if (type === 'thinking') return '#a8cce8'; // light blue
+            if (type === 'code')     return '#268bd2'; // full Solarized blue
+            return '#5ba4c8';                          // mid blue for text
+        }
+
+        const PROFILER_AXIS   = 60;  // total axis width in seconds
+        const SCROLL_AFTER    = 30;  // start scrolling once elapsed exceeds this
+        const BUCKET_SEC     = SPEED_BUCKET_TICKS * 0.1; // seconds per finalized block
+
+        function updateProfilerBars(now) {
+            for (const [id, t] of Object.entries(streamTimings)) {
+                const reqElapsed = t.end ? (t.end - t.start) / 1000 : (now - t.start) / 1000;
+                const ttftTime   = t.firstToken ? (t.firstToken - t.start) / 1000 : reqElapsed;
+                const tgTime     = t.firstToken ? Math.max(0, reqElapsed - ttftTime) : 0;
+                const tps        = tgTime > 0.1 ? (streamTokenCounts[id] || 0) / tgTime : 0;
+
+                // bucket content type + speed per block (only after first token)
+                if (!streamTypeHistory[id]) streamTypeHistory[id] = {blocks: [], curCount: 0, curType: 'text', curSum: 0};
+                if (!t.end && t.firstToken) {
+                    const sh = streamTypeHistory[id];
+                    sh.curType = streamContentType[id] || 'text';
+                    sh.curSum += tps;
+                    sh.curCount++;
+                    if (sh.curCount >= SPEED_BUCKET_TICKS) {
+                        sh.blocks.push({type: sh.curType, tps: sh.curSum / sh.curCount});
+                        sh.curCount = 0; sh.curSum = 0;
+                    }
+                }
+
+                const container  = document.getElementById(`bar-${id}`);
+                const timeline   = document.getElementById(`timeline-${id}`);
+                const ttftEl     = document.getElementById(`seg-ttft-${id}`);
+                const label      = document.getElementById(`bar-time-${id}`);
+                if (!container) continue;
+
+                label.textContent  = `${reqElapsed.toFixed(2)}s`;
+
+                const connEl    = document.getElementById(`seg-conn-${id}`);
+                const connTime  = t.responseStart ? (t.responseStart - t.start) / 1000 : 0;
+                const pfTime    = ttftTime - connTime;
+                const pct       = v => `${(v / PROFILER_AXIS * 100).toFixed(2)}%`;
+                if (connEl) { connEl.style.left = '0'; connEl.style.width = pct(connTime); }
+                ttftEl.style.left  = pct(connTime);
+                ttftEl.style.width = pct(Math.max(0, pfTime));
+
+                // scroll using wall-clock time so completed streams keep scrolling
+                const wallElapsed = (now - t.start) / 1000;
+                const offset = Math.max(0, wallElapsed - SCROLL_AFTER);
+                timeline.style.transform = offset > 0
+                    ? `translateX(-${(offset / PROFILER_AXIS * 100).toFixed(2)}%)`
+                    : '';
+
+                // append new finalized bars (never modify old ones)
+                if (!streamBarState[id]) streamBarState[id] = {barCount: 0, curBar: null};
+                const bs = streamBarState[id];
+                const sh = streamTypeHistory[id];
+                const barWidthPct = `${(BUCKET_SEC / PROFILER_AXIS * 100).toFixed(2)}%`;
+
+                while (sh && bs.barCount < sh.blocks.length) {
+                    const i   = bs.barCount;
+                    const blk = sh.blocks[i];
+                    const bar = document.createElement('div');
+                    bar.className        = 'profiler-hist-bar';
+                    bar.style.left       = `${((ttftTime + i * BUCKET_SEC) / PROFILER_AXIS * 100).toFixed(2)}%`;
+                    bar.style.width      = barWidthPct;
+                    bar.style.height     = `${Math.max(2, blk.tps / 50 * 100).toFixed(1)}%`;
+                    bar.style.background = typeColor(blk.type);
+                    timeline.appendChild(bar);
+                    bs.barCount++;
+                    bs.curBar = null;
+                }
+
+                // update or create the current partial bar
+                if (!t.end && sh && sh.curCount > 0) {
+                    const curTps = sh.curSum / sh.curCount;
+                    if (!bs.curBar) {
+                        bs.curBar            = document.createElement('div');
+                        bs.curBar.className  = 'profiler-hist-bar';
+                        bs.curBar.style.left = `${((ttftTime + sh.blocks.length * BUCKET_SEC) / PROFILER_AXIS * 100).toFixed(2)}%`;
+                        bs.curBar.style.width = barWidthPct;
+                        timeline.appendChild(bs.curBar);
+                    }
+                    bs.curBar.style.height     = `${Math.max(2, curTps / 50 * 100).toFixed(1)}%`;
+                    bs.curBar.style.background = typeColor(sh.curType);
+                }
+            }
+        }
+
+        function resetStreamProfiler(streamId) {
+            streamTimings[streamId] = {};
+            streamTokenCounts[streamId] = 0;
+            delete streamTypeHistory[streamId];
+            delete streamBarState[streamId];
+            const timeline = document.getElementById(`timeline-${streamId}`);
+            if (!timeline) return;
+            timeline.querySelectorAll('.profiler-hist-bar').forEach(b => b.remove());
+            timeline.style.transform = '';
+            const connEl = document.getElementById(`seg-conn-${streamId}`);
+            const ttftEl = document.getElementById(`seg-ttft-${streamId}`);
+            if (connEl) { connEl.style.left = '0'; connEl.style.width = '0'; }
+            if (ttftEl) { ttftEl.style.left = '0'; ttftEl.style.width = '0'; }
+            document.getElementById(`bar-time-${streamId}`).textContent = '—';
+        }
+
+        // ---------------------------------------------------------------------------------
+
+        function createStreamBlock(id) {
+            const block = document.createElement('div');
+            block.className = 'stream-block';
+            block.id = `stream-${id}`;
+            block.innerHTML = `
+                <div class="stream-header">
+                    <div class="stream-stats">
+                        <div class="stream-stat conn">
+                            <div class="value" id="conn-${id}">-</div>
+                            <div class="label">Conn</div>
+                        </div>
+                        <div class="stream-stat ttft">
+                            <div class="value" id="ttft-${id}">-</div>
+                            <div class="label">Prefill</div>
+                        </div>
+                        <div class="stream-stat pp">
+                            <div class="value" id="pp-${id}">-</div>
+                            <div class="label">PP t/s</div>
+                        </div>
+                        <div class="stream-stat tg">
+                            <div class="value" id="tg-${id}">-</div>
+                            <div class="label">Gen/s</div>
+                        </div>
+                        <div class="stream-stat ctx">
+                            <div class="value" id="ctx-${id}">-</div>
+                            <div class="label">Ctx tok</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stream-content" id="content-${id}"></div>
+                <div class="stream-status idle" id="status-${id}">Idle</div>
+            `;
+            return block;
+        }
+        
+        function syncParamsWidth() {
+            const block = document.querySelector('.stream-block');
+            const params = document.querySelector('.params-section');
+            if (!block || !params) return;
+            params.style.width = block.offsetWidth + 'px';
+        }
+
+        function setupStreamBlocks(count) {
+            const section = document.getElementById('streamsSection');
+            section.innerHTML = '';
+            for (let i = 0; i < count; i++) {
+                const id = i + 1;
+                section.appendChild(createStreamBlock(id));
+                streamAutoScroll[id] = true;
+                const contentEl = document.getElementById(`content-${id}`);
+                contentEl.addEventListener('scroll', () => {
+                    const atBottom = contentEl.scrollHeight - contentEl.scrollTop - contentEl.clientHeight <= 5;
+                    streamAutoScroll[id] = atBottom;
+                });
+            }
+            requestAnimationFrame(syncParamsWidth);
+        }
+        
+        function updateStatus(id, status, className) {
+            const el = document.getElementById(`status-${id}`);
+            el.textContent = status;
+            el.className = `stream-status ${className}`;
+        }
+        
+        function updateStats(id, conn, pfTime, pp, tg) {
+            document.getElementById(`conn-${id}`).textContent = conn   ? `${Math.round(conn * 1000).toLocaleString()}ms`  : '-';
+            document.getElementById(`ttft-${id}`).textContent = pfTime ? `${(pfTime * 1000).toFixed(0)}ms`: '-';
+            document.getElementById(`pp-${id}`).textContent   = pp     ? `${pp.toFixed(1)}`               : '-';
+            document.getElementById(`tg-${id}`).textContent   = tg     ? `${tg.toFixed(1)}`               : '-';
+        }
+        
+        async function makeRequest(streamId, url, model, contextTokens, generateTokens, apiKey, messagesOverride = null) {
+            const systemPrompt = document.getElementById('systemPrompt').value.trim() || 'You are a helpful assistant.';
+            const userMessage = document.getElementById('message').value.trim() || 'Generate creative content.';
+
+            let messages, prefillTokens;
+            if (messagesOverride) {
+                messages = messagesOverride;
+                prefillTokens = countTokens(messages.map(m => m.content).join(' '));
+            } else {
+                const context = generateContext(contextTokens);
+                const prompt = context ? `${context}\n\nIgnore context above. ${userMessage}` : userMessage;
+                messages = [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: prompt }
+                ];
+                prefillTokens = countTokens(systemPrompt + prompt);
+            }
+
+            streamMessages[streamId] = messages;
+
+            const controller = new AbortController();
+            abortControllers.push(controller);
+
+            const startTime = performance.now();
+            let firstTokenTime = null;
+            let lastTokenTime = null;
+            let serverTokenCount = 0;
+            let thinkingText = '';
+            let outputText = '';
+            let codeBlockCount = 0;
+            let ttft = 0;
+            const tgWindow = [];
+            const TG_WINDOW_MS = 3000;
+
+            streamTimings[streamId] = { start: performance.now() };
+
+            const ctxEl = document.getElementById(`ctx-${streamId}`);
+            if (ctxEl) ctxEl.textContent = Math.round(prefillTokens * 1.5).toLocaleString();
+
+            const contentEl = document.getElementById(`content-${streamId}`);
+            streamAutoScroll[streamId] = true;
+            const sysContent  = messages.find(m => m.role === 'system')?.content || '';
+            const userContent = messagesOverride
+                ? ([...messagesOverride].reverse().find(m => m.role === 'user')?.content || '')
+                : userMessage;
+            if (!messagesOverride) {
+                // First round: render fresh
+                contentEl.innerHTML =
+                    (sysContent  ? `<div class="msg-bubble system">${escapeHtml(sysContent)}</div>`  : '') +
+                    (userContent ? `<div class="msg-bubble user">${escapeHtml(userContent)}</div>` : '');
+            } else {
+                // Continuous subsequent round: append separator + new user bubble
+                const sep = document.createElement('div');
+                sep.className = 'round-sep';
+                contentEl.appendChild(sep);
+                if (userContent) {
+                    const bubble = document.createElement('div');
+                    bubble.className = 'msg-bubble user';
+                    bubble.textContent = userContent;
+                    contentEl.appendChild(bubble);
+                }
+            }
+            const outDiv = document.createElement('div');
+            contentEl.appendChild(outDiv);
+
+            console.log(`Stream ${streamId}: Sending request to ${url}`);
+
+            updateStatus(streamId, 'Connecting…', 'running');
+
+            const enableThinking = document.getElementById('enableThinking').checked;
+            const reasoningEffort = document.getElementById('reasoningEffort').value;
+            const bodyData = {
+                model: model,
+                messages,
+                stream: true,
+                stream_options: { include_usage: true, continuous_usage_stats: true },
+                thinking: { type: enableThinking ? 'enabled' : 'disabled' },
+                reasoning_effort: reasoningEffort,
+                chat_template_kwargs: { enable_thinking: enableThinking, thinking: enableThinking },
+            };
+            
+            // Only include max_tokens if it's greater than 0 (unlimited if 0)
+            if (generateTokens > 0) {
+                bodyData.max_tokens = generateTokens;
+            }
+            
+            try {
+                const response = await fetch(`${url}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+                    },
+                    body: JSON.stringify(bodyData),
+                    signal: controller.signal
+                });
+                
+                streamTimings[streamId].responseStart = performance.now();
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`Stream ${streamId} HTTP error:`, response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}\n${errorText}`);
+                }
+
+                updateStatus(streamId, 'Prefilling…', 'running');
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    // Keep the last incomplete line in buffer
+                    buffer = lines.pop() || '';
+                    
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || !trimmed.startsWith('data:')) continue;
+                        
+                        const data = trimmed.replace(/^data:\s*/, '');
+                        if (data === '[DONE]') {
+                            break;
+                        }
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            
+                            // Prefer server-reported token count when available (vLLM continuous_usage_stats)
+                            if (parsed.usage?.completion_tokens) {
+                                serverTokenCount = parsed.usage.completion_tokens;
+                            }
+                            
+                            // Try multiple possible paths for content (including reasoning/thinking)
+                            let delta = null;
+                            let isReasoning = false;
+                            if (parsed.choices?.[0]?.delta?.content !== null && parsed.choices?.[0]?.delta?.content !== undefined && parsed.choices[0].delta.content !== '') {
+                                delta = parsed.choices[0].delta.content;
+                                isReasoning = false;
+                            } else if (parsed.choices?.[0]?.delta?.reasoning_content || parsed.choices?.[0]?.delta?.reasoning) {
+                                delta = parsed.choices[0].delta.reasoning_content || parsed.choices[0].delta.reasoning;
+                                isReasoning = true;
+                            } else if (parsed.choices?.[0]?.text) {
+                                delta = parsed.choices[0].text;
+                                isReasoning = false;
+                            } else if (parsed.content) {
+                                delta = parsed.content;
+                                isReasoning = false;
+                            }
+                            
+                            // Only process if we have actual content (not null/undefined)
+                            if (delta !== null && delta !== undefined && delta !== '') {
+                                console.log(`Stream ${streamId} ${isReasoning ? 'thinking' : 'output'}:`, delta.substring(0, 50));
+                                
+                                if (!firstTokenTime) {
+                                    firstTokenTime = performance.now();
+                                    streamTimings[streamId].firstToken = firstTokenTime;
+                                    ttft = (firstTokenTime - startTime) / 1000;
+                                    const connT = streamTimings[streamId].responseStart
+                                        ? (streamTimings[streamId].responseStart - startTime) / 1000 : 0;
+                                    updateStats(streamId, connT, ttft - connT, 0, 0);
+                                    updateStatus(streamId, `Generating… (TTFT ${ttft.toFixed(2)}s)`, 'running');
+                                }
+
+                                const now = performance.now();
+                                lastTokenTime = now;
+
+                                if (isReasoning) {
+                                    thinkingText += delta;
+                                    streamContentType[streamId] = 'thinking';
+                                } else {
+                                    codeBlockCount += (delta.match(/```/g) || []).length;
+                                    outputText += delta;
+                                    streamContentType[streamId] = codeBlockCount % 2 === 1 ? 'code' : 'text';
+                                }
+                                streamCurrentOutput[streamId] = outputText;
+
+                                // Re-render with formatting
+                                let html = '';
+                                if (thinkingText) html += `<div class="thinking-section">${escapeHtml(thinkingText)}</div>`;
+                                if (outputText)   html += `<div class="output-section">${simpleMarkdown(outputText)}</div>`;
+                                outDiv.innerHTML = html;
+                                if (streamAutoScroll[streamId] !== false) contentEl.scrollTop = contentEl.scrollHeight;
+
+                                // Rolling-window TG speed using regex token counts per chunk
+                                const tokensInChunk = countTokens(delta);
+                                streamTokenCounts[streamId] = (streamTokenCounts[streamId] || 0) + tokensInChunk;
+                                globalTgWindow.push({ tokens: tokensInChunk, time: now });
+                                tgWindow.push({ tokens: tokensInChunk, time: now });
+                                const tgCutoff = now - TG_WINDOW_MS;
+                                while (tgWindow.length > 1 && tgWindow[0].time < tgCutoff) tgWindow.shift();
+
+                                const elapsed = (lastTokenTime - startTime) / 1000;
+                                if (elapsed > 0.01 && tgWindow.length >= 2) {
+                                    const windowTokens = tgWindow.reduce((s, e) => s + e.tokens, 0);
+                                    const windowMs = tgWindow[tgWindow.length - 1].time - tgWindow[0].time;
+                                    const rollingTgSpeed = windowMs > 0 ? windowTokens * 1000 / windowMs : 0;
+                                    const connT   = streamTimings[streamId].responseStart
+                                        ? (streamTimings[streamId].responseStart - startTime) / 1000 : 0;
+                                    const pfTime  = ttft - connT;
+                                    const ppSpeed = pfTime > 0.01 ? prefillTokens / pfTime : 0;
+                                    updateStats(streamId, connT, pfTime, ppSpeed, rollingTgSpeed);
+                                }
+                            }
+                        } catch (e) {
+                            // Skip incomplete JSON chunks
+                            if (!e.message.includes('Unexpected end')) {
+                                console.warn(`Stream ${streamId} parse error:`, e.message);
+                            }
+                        }
+                    }
+                }
+                
+                const finalTokens = serverTokenCount || countTokens(outputText);
+                const totalTime   = (performance.now() - startTime) / 1000;
+                const tgSpeed     = finalTokens / totalTime;
+                const connT       = streamTimings[streamId].responseStart
+                    ? (streamTimings[streamId].responseStart - startTime) / 1000 : 0;
+                const pfTime      = ttft - connT;
+                const ppSpeed     = prefillTokens / (pfTime || 0.001);
+
+                streamTimings[streamId].end = performance.now();
+                updateStats(streamId, connT, pfTime, ppSpeed, tgSpeed);
+                updateStatus(streamId, `Done! ${finalTokens} tokens in ${totalTime.toFixed(2)}s`, 'done');
+
+                return { ttft, pp: ppSpeed, tg: tgSpeed, tokenCount: finalTokens, totalTime, streamId, outputText, messages };
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    if (continuousNext) {
+                        const marker = document.createElement('div');
+                        marker.className = 'interrupted';
+                        marker.textContent = '[Interrupted]';
+                        outDiv.appendChild(marker);
+                    } else {
+                        updateStatus(streamId, 'Cancelled', 'idle');
+                    }
+                } else {
+                    updateStatus(streamId, `Error: ${error.message}`, 'error');
+                }
+                throw error;
+            }
+        }
+        
+        function setParamsLocked(locked, continuous) {
+            const grid = document.getElementById('paramsGrid');
+            grid.style.pointerEvents = locked ? 'none' : 'auto';
+            if (locked && continuous) {
+                grid.style.opacity = '1';
+                const msgEl = document.getElementById('message');
+                Array.from(grid.children).forEach(el => {
+                    const isMsg = el.contains(msgEl);
+                    el.style.opacity = isMsg ? '1' : '0.5';
+                    el.style.pointerEvents = isMsg ? 'auto' : 'none';
+                });
+            } else {
+                grid.style.opacity = locked ? '0.5' : '1';
+                Array.from(grid.children).forEach(el => {
+                    el.style.opacity = '';
+                    el.style.pointerEvents = '';
+                });
+            }
+        }
+
+        async function startTests() {
+            if (isRunning) return;
+            
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            const parallelRequests = parseInt(document.querySelector('input[name="parallel"]:checked')?.value) || 4;
+            const contextSize = parseInt(document.getElementById('contextSize').value) || 0;
+            const generateTokens = parseInt(document.getElementById('generateTokens').value) || 0;
+            const model = document.getElementById('model').value.trim() || 'default';
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            // Validate inputs
+            if (!serverUrl) {
+                alert('Please enter a server URL');
+                return;
+            }
+            
+            isRunning = true;
+            globalStartTime = performance.now();
+            abortControllers = [];
+            streamTimings = {};
+            streamTokenCounts = {};
+            streamTypeHistory = {}; streamContentType = {};
+            streamBarState = {};
+            streamCurrentOutput = {};
+            streamAutoScroll = {};
+            streamMessages = {};
+            globalTgWindow = [];
+
+            document.getElementById('stopBtn').disabled = false;
+            setParamsLocked(true, document.getElementById('continuous').checked);
+
+            const isContinuing = document.getElementById('continuous').checked && Object.keys(streamSavedHistory).length > 0;
+            if (!isContinuing) setupStreamBlocks(parallelRequests);
+            setupProfilerRows(parallelRequests);
+
+            document.getElementById('totalTime').textContent = '0.00s';
+            document.getElementById('completedReqs').textContent = '0';
+            document.getElementById('totalTokens').textContent = '0';
+            document.getElementById('throughput').textContent = '0.0';
+            
+            const results = [];
+            const promises = [];
+
+            function updateGlobalStats() {
+                const elapsed = (performance.now() - globalStartTime) / 1000;
+                const n = results.length;
+                if (n === 0) return;
+                const totalTokens = results.reduce((s, r) => s + (r.tokenCount || 0), 0);
+                const throughput = elapsed > 0 ? totalTokens / elapsed : 0;
+                const avgTTFT = results.reduce((s, r) => s + (r.ttft || 0), 0) / n;
+                document.getElementById('avgPrefill').textContent = `${(avgTTFT * 1000).toFixed(0)}ms`;
+                document.getElementById('completedReqs').textContent = n;
+                document.getElementById('totalTokens').textContent = totalTokens;
+                document.getElementById('throughput').textContent = throughput.toFixed(1);
+            }
+
+            for (let i = 0; i < parallelRequests; i++) {
+                const streamId = i + 1;
+                promises.push((async () => {
+                    const saved = isContinuing && streamSavedHistory[streamId];
+                    const messagesOverride = saved ? [
+                        ...saved.messages,
+                        { role: 'assistant', content: saved.outputText },
+                        { role: 'user', content: document.getElementById('message').value.trim() || 'Generate creative content.' },
+                    ] : null;
+                    let result;
+                    try {
+                        result = await makeRequest(streamId, serverUrl, model, contextSize, generateTokens, apiKey, messagesOverride);
+                    } catch (err) {
+                        if (err.name === 'AbortError' && streamMessages[streamId]?.length) {
+                            streamSavedHistory[streamId] = {
+                                messages: streamMessages[streamId],
+                                outputText: streamCurrentOutput[streamId] || '',
+                            };
+                        } else if (err.name !== 'AbortError') {
+                            console.error(`Stream ${streamId} error:`, err);
+                        }
+                        return;
+                    }
+                    if (result?.messages?.length) {
+                        streamSavedHistory[streamId] = { messages: result.messages, outputText: result.outputText || '' };
+                    }
+                    results.push(result);
+                    updateGlobalStats();
+                })());
+            }
+
+            const timerInterval = setInterval(() => {
+                const now = performance.now();
+                const elapsed = (now - globalStartTime) / 1000;
+                document.getElementById('totalTime').textContent = `${elapsed.toFixed(2)}s`;
+                const cutoff = now - GLOBAL_TG_WINDOW_MS;
+                while (globalTgWindow.length > 1 && globalTgWindow[0].time < cutoff) globalTgWindow.shift();
+                if (globalTgWindow.length >= 2) {
+                    const windowTokens = globalTgWindow.reduce((s, e) => s + e.tokens, 0);
+                    const windowMs = globalTgWindow[globalTgWindow.length - 1].time - globalTgWindow[0].time;
+                    if (windowMs > 0) document.getElementById('throughput').textContent = (windowTokens * 1000 / windowMs).toFixed(1);
+                }
+                updateProfilerBars(now);
+            }, 100);
+
+            await Promise.all(promises);
+
+            clearInterval(timerInterval);
+
+            const totalTime = (performance.now() - globalStartTime) / 1000;
+            document.getElementById('totalTime').textContent = `${totalTime.toFixed(2)}s`;
+            updateProfilerBars(performance.now());
+            updateGlobalStats();
+            
+            isRunning = false;
+            document.getElementById('stopBtn').disabled = true;
+            setParamsLocked(false, false);
+        }
+
+        function nextRound() {
+            if (!isRunning) {
+                startTests();
+            } else if (document.getElementById('continuous').checked) {
+                continuousNext = true;
+                stopTests();
+                setTimeout(() => { continuousNext = false; startTests(); }, 0);
+            } else {
+                stopTests();
+            }
+        }
+
+        function stopTests() {
+            if (!isRunning) return;
+            isRunning = false;
+            abortControllers.forEach(controller => controller.abort());
+            abortControllers = [];
+            document.getElementById('stopBtn').disabled = true;
+            setParamsLocked(false, false);
+        }
+
+        function clearAll() {
+            isRunning = false;
+            abortControllers.forEach(c => c.abort());
+            abortControllers = [];
+            document.getElementById('stopBtn').disabled = true;
+            setParamsLocked(false, false);
+            streamTimings = {};
+            streamTokenCounts = {};
+            streamTypeHistory = {}; streamContentType = {};
+            streamBarState = {};
+            streamCurrentOutput = {};
+            streamAutoScroll = {};
+            streamMessages = {};
+            streamSavedHistory = {};
+            globalTgWindow = [];
+            document.getElementById('totalTime').textContent = '0.00s';
+            document.getElementById('avgPrefill').textContent = '-';
+            document.getElementById('completedReqs').textContent = '0';
+            document.getElementById('totalTokens').textContent = '0';
+            document.getElementById('throughput').textContent = '0.0';
+            document.getElementById('profilerChart').innerHTML = '';
+            document.getElementById('streamsSection').innerHTML = '';
+        }
+        
+        const PARAM_IDS = ['serverUrl', 'contextSize', 'generateTokens', 'model', 'apiKey', 'systemPrompt', 'message', 'reasoningEffort'];
+        const CHECKBOX_IDS = ['enableThinking', 'continuous'];
+
+        const SCENARIO_TEXTS = {
+            count3: 'Count from 1 to 100, three times in a row, like this: 1 2 3 4 5 6 7 8 9 10 ...',
+            django: 'Write a complex Django web site.',
+            rand50: 'Write 50 newline-separated 20-character completely random strings.',
+            pelican: 'Make an SVG of a pelican riding a bicycle. Animated.',
+        };
+
+        function setScenario(name) {
+            document.getElementById('message').value = SCENARIO_TEXTS[name] || '';
+            saveParams();
+        }
+
+        function saveParams() {
+            const obj = {};
+            PARAM_IDS.forEach(id => { obj[id] = document.getElementById(id).value; });
+            CHECKBOX_IDS.forEach(id => { obj[id] = document.getElementById(id).checked; });
+            obj.parallel = document.querySelector('input[name="parallel"]:checked')?.value || '4';
+            localStorage.setItem('multitest_params', JSON.stringify(obj));
+        }
+
+        function loadParams() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('multitest_params') || '{}');
+                PARAM_IDS.forEach(id => { if (saved[id] !== undefined) document.getElementById(id).value = saved[id]; });
+                CHECKBOX_IDS.forEach(id => { if (saved[id] !== undefined) document.getElementById(id).checked = saved[id]; });
+                if (saved.parallel) {
+                    const el = document.querySelector(`input[name="parallel"][value="${saved.parallel}"]`);
+                    if (el) el.checked = true;
+                }
+            } catch (e) {}
+        }
+
+        window.onload = () => {
+            loadParams();
+            PARAM_IDS.forEach(id => document.getElementById(id).addEventListener('change', saveParams));
+            document.querySelectorAll('input[name="parallel"]').forEach(el => el.addEventListener('change', saveParams));
+            CHECKBOX_IDS.forEach(id => document.getElementById(id).addEventListener('change', saveParams));
+            document.getElementById('continuous').addEventListener('change', e => {
+                document.getElementById('startBtn').textContent = e.target.checked ? 'Next' : 'Start';
+                if (isRunning) setParamsLocked(true, e.target.checked);
+            });
+            if (document.getElementById('continuous').checked)
+                document.getElementById('startBtn').textContent = 'Next';
+            document.getElementById('message').addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startTests(); }
+            });
+            const defaultCount = parseInt(document.querySelector('input[name="parallel"]:checked')?.value) || 4;
+            setupStreamBlocks(defaultCount);
+            setupProfilerRows(defaultCount);
+            window.addEventListener('resize', syncParamsWidth);
+        };
+    </script>
+</body>
+</html>
