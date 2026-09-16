@@ -7,6 +7,8 @@ main() {
         heal)        do_heal ;;
         up)          do_up ;;
         down)        do_down ;;
+        start)       do_up ;;
+        stop)        do_down ;;
         status)      do_status ;;
         tail-head)   do_tail_head ;;
         tail-worker) do_tail_worker ;;
@@ -83,6 +85,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${DIR}/lib.sh"
 
 do_up() {
+    do_down
+
     ensure_launcher
     ensure_model
     ensure_image
