@@ -18,6 +18,7 @@ main() {
     esac
 }
 
+
 HF_CACHE_DIR=$HOME/.cache/huggingface
 MODEL=deepseek-ai/DeepSeek-V4-Flash-Vision-Exp
 MODEL_REVISION=main
@@ -27,6 +28,8 @@ LOCAL_IMAGE=vllm-for-deepseek-v4-vision-exp-ollie-stack:latest
 DOCKER_HUB_IMAGE=0rand/vllm_spark_dsv4-0.29-b12x:latest
 
 CONTAINER_NAME=vision_exp
+
+SERVED_MODEL_NAME=default
 PORT=8000
 
 CLUSTER_NODES=192.168.100.10,192.168.100.11
@@ -35,50 +38,57 @@ FIX_BROKEN_VISION=1
 FIX_DSPARK_K_5=1
 FIX_PREFIX_CACHE_DEDUPE=1
 FIX_PREFIX_REPLAY_TAIL=1
+FIX_LINEAR_MARLIN_O_PROJ=1
+FIX_LINEAR_TRITON_E8M0=0
+FIX_LINEAR_CUTLASS_E8M0=0
 
-FIX_PREFIX_CACHE_BOUNDFIX=0
-FIX_KVFIX_INSTRUMENT=0
 
 serve_script() {
     cat <<EOF
 #!/bin/bash
 set -euo pipefail
-vllm serve ${MODEL} \\
-    --host 0.0.0.0 \\
-    --port ${PORT} \\
-    --served-model-name default \\
-    --default-chat-template-kwargs '{"thinking":true,"reasoning_effort":"max"}' \\
-    --default-chat-template-kwargs.temperature=1.0 \\
-    --default-chat-template-kwargs.top_p=0.95 \\
-    --default-chat-template-kwargs.thinking=true --default-chat-template-kwargs.reasoning_effort=high \\
-    --default-chat-template-kwargs.drop_thinking=false \\
-    --trust-remote-code \\
-    --tensor-parallel-size 2 \\
-    --kv-cache-dtype fp8 \\
-    --block-size 256 \\
-    --max-model-len 1048576 \\
-    --max-num-seqs 12 \\
-    --max-num-batched-tokens 2048 \\
-    --gpu-memory-utilization 0.87 \\
-    --enable-prefix-caching \\
-    --async-scheduling \\
-    --enable-chunked-prefill \\
-    --skip-mm-profiling \\
-    --limit-mm-per-prompt '{"image": 200}' \\
-    --tokenizer-mode deepseek_v4 \\
-    --tool-call-parser deepseek_v4 \\
-    --enable-auto-tool-choice \\
-    --reasoning-parser deepseek_v4 \\
-    --reasoning-config '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}' \\
-    --moe-backend marlin \\
-    --disable-custom-all-reduce \\
-    --linear-backend b12x \\
-    --compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}' \\
-    --max-cudagraph-capture-size 88 \\
-    --attention-backend FLASHINFER_MLA_SPARSE_DSV4 \\
-    --speculative-config '{"method":"dspark","model":"deepseek-ai/DeepSeek-V4-Flash-Vision-Exp","num_speculative_tokens":5,"draft_sample_method":"probabilistic","attention_backend":"FLASHINFER_MLA_SPARSE_DSV4","enable_adaptive_verification":false}'
+
+# DEBUG: disabled for now, to be tested
+#export VLLM_MARLIN_USE_ATOMIC_ADD=1
+
+vllm serve ${MODEL} \
+--host 0.0.0.0 \
+--port ${PORT} \
+--served-model-name ${SERVED_MODEL_NAME} \
+--default-chat-template-kwargs.temperature=1.0 \
+--default-chat-template-kwargs.top_p=0.95 \
+--default-chat-template-kwargs.thinking=true \
+--default-chat-template-kwargs.reasoning_effort=high \
+--default-chat-template-kwargs.drop_thinking=false \
+--trust-remote-code \
+--tensor-parallel-size 2 \
+--kv-cache-dtype fp8 \
+--block-size 256 \
+--max-model-len 1048576 \
+--max-num-seqs 12 \
+--max-num-batched-tokens 2048 \
+--gpu-memory-utilization 0.87 \
+--enable-prefix-caching \
+--async-scheduling \
+--enable-chunked-prefill \
+--skip-mm-profiling \
+--limit-mm-per-prompt '{"image": 200}' \
+--tokenizer-mode deepseek_v4 \
+--tool-call-parser deepseek_v4 \
+--enable-auto-tool-choice \
+--reasoning-parser deepseek_v4 \
+--reasoning-config '{"reasoning_parser":"deepseek_v4","reasoning_start_str":"","reasoning_end_str":""}' \
+--moe-backend marlin \
+--linear-backend marlin \
+--disable-custom-all-reduce \
+--compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}' \
+--max-cudagraph-capture-size 88 \
+--attention-backend FLASHINFER_MLA_SPARSE_DSV4 \
+--speculative-config '{"method":"dspark","model":"deepseek-ai/DeepSeek-V4-Flash-Vision-Exp","num_speculative_tokens":5,"draft_sample_method":"probabilistic","attention_backend":"FLASHINFER_MLA_SPARSE_DSV4","enable_adaptive_verification":false}'
 EOF
+
 }
+
 
 SELF="$(basename "${BASH_SOURCE[0]}")"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,35 +100,28 @@ do_up() {
     ensure_launcher
     ensure_model
     ensure_image
-    launch_cluster "$(serve_script)"
 
-    log "server starting on ${CLUSTER_NODES} (container: ${CONTAINER_NAME})"
-    log "to follow the head log, run: ./${SELF} tail-head"
+    local -a mod_args
+    mapfile -t mod_args < <(build_apply_mod_args)
+
+    launch_cluster "$(serve_script)" "${mod_args[@]}"
+
+    do_tail_head_till "Application startup complete."
+
+    continue_perf_tail
 }
 
 build_apply_mod_args() {
-    local args=()
-    if [[ "${FIX_BROKEN_VISION}" == "1" && -d "${DIR}/fixes/fix-dsv4-mm-prefix-span" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-dsv4-mm-prefix-span")
-    fi
-    if [[ "${FIX_DSPARK_K_5}" == "1" && -d "${DIR}/fixes/fix-dspark-mtp-divisibility" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-dspark-mtp-divisibility")
-    fi
-    if [[ "${FIX_PREFIX_REPLAY_TAIL}" == "1" && -d "${DIR}/fixes/fix-dsv4-prefix-replay-tail" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-dsv4-prefix-replay-tail")
-    fi
-    if [[ "${FIX_PREFIX_CACHE_DEDUPE}" == "1" && -d "${DIR}/fixes/fix-vllm-prefix-cache-dedupe" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-vllm-prefix-cache-dedupe")
-    fi
+    local -a mod_args=()
+    add_mod_arg_if_1 "$FIX_BROKEN_VISION"        fix-dsv4-mm-prefix-span
+    add_mod_arg_if_1 "$FIX_DSPARK_K_5"           fix-dspark-mtp-divisibility
+    add_mod_arg_if_1 "$FIX_PREFIX_REPLAY_TAIL"   fix-dsv4-prefix-replay-tail
+    add_mod_arg_if_1 "$FIX_PREFIX_CACHE_DEDUPE"  fix-vllm-prefix-cache-dedupe
+    add_mod_arg_if_1 "$FIX_LINEAR_MARLIN_O_PROJ" fix-vllm-linear-marlin-o-proj
+    add_mod_arg_if_1 "$FIX_LINEAR_TRITON_E8M0"   fix-vllm-linear-triton-e8m0
+    add_mod_arg_if_1 "$FIX_LINEAR_CUTLASS_E8M0"  fix-vllm-linear-cutlass-e8m0
 
-    # Experimental
-    if [[ "${FIX_PREFIX_CACHE_BOUNDFIX}" == "1" && -d "${DIR}/fixes/fix-vllm-prefix-cache-boundfix" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-vllm-prefix-cache-boundfix")
-    fi
-    if [[ "${FIX_KVFIX_INSTRUMENT}" == "1" && -d "${DIR}/fixes/fix-kvfix-instrument" ]]; then
-        args+=(--apply-mod "${DIR}/fixes/fix-kvfix-instrument")
-    fi
-    printf '%s\n' "${args[@]}"
+    printf '%s\n' "${mod_args[@]}"
 }
 
 main "$@"

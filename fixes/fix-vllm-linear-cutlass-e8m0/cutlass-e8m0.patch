@@ -1,0 +1,46 @@
+--- a/vllm/model_executor/kernels/linear/scaled_mm/cutlass.py
++++ b/vllm/model_executor/kernels/linear/scaled_mm/cutlass.py
+@@ -14,6 +14,9 @@
+     QuantKey,
+     kFp8StaticTensorSym,
+ )
++from vllm.model_executor.layers.quantization.utils.fp8_utils import (
++    _upcast_e8m0_to_fp32,
++)
+ from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
+     CUTLASS_BLOCK_FP8_SUPPORTED,
+     convert_to_channelwise,
+@@ -309,6 +312,33 @@
+             )
+         return True, None
+ 
++    def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
++        super().process_weights_after_loading(layer)
++        params = self._get_layer_params(layer)
++        if params.weight_scale_inv is not None:
++            weight_scale = params.weight_scale_inv
++            scale_attr = params.WEIGHT_SCALE_INV
++        else:
++            weight_scale = params.weight_scale
++            scale_attr = params.WEIGHT_SCALE
++        if weight_scale is not None and weight_scale.dtype in (
++            torch.float8_e8m0fnu,
++            torch.uint8,
++        ):
++            # DeepSeek-V4 stores FP8 weight block scales as E8M0 (exponent-only;
++            # config: quantization_config.scale_fmt="ue8m0", expert_dtype="fp4").
++            # The CUTLASS block-scaled MM load cannot bind float8_e8m0fnu scale
++            # tensors (dispatch_scaled_mm, scaled_mm_helper.hpp:17), so upcast
++            # them to fp32 once at load time -- exactly what B12xFp8BlockScaledMMKernel
++            # does -- so both the linear kernel and the attention o_proj path
++            # (deep_gemm_fp8_o_proj -> fp8_einsum, which requires fp32 scales)
++            # see fp32 scales instead of E8M0.
++            replace_parameter(
++                layer,
++                scale_attr,
++                _upcast_e8m0_to_fp32(weight_scale).contiguous(),
++            )
++
+     def apply_block_scaled_mm(
+         self,
+         A: torch.Tensor,

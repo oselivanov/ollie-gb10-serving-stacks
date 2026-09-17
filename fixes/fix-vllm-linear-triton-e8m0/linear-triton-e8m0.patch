@@ -1,0 +1,47 @@
+--- a/vllm/model_executor/kernels/linear/scaled_mm/triton.py
++++ b/vllm/model_executor/kernels/linear/scaled_mm/triton.py
+@@ -9,6 +9,9 @@
+     triton_scaled_mm,
+ )
+ from vllm.model_executor.layers.quantization.utils import replace_parameter
++from vllm.model_executor.layers.quantization.utils.fp8_utils import (
++    _upcast_e8m0_to_fp32,
++)
+ from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
+     convert_to_channelwise,
+ )
+@@ -163,6 +166,34 @@
+             return False, "only CUDA-alike and XPU devices are supported."
+         return True, None
+ 
++    def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
++        # DeepSeek-V4 block-FP8 weights store their block scales as E8M0
++        # (exponent-only). The Triton W8A8 kernel cannot bind float8_e8m0fnu
++        # (no torch->Triton dtype map entry -> KeyError), and the attention
++        # o_proj path feeds wo_a.weight_scale straight into DeepGEMM
++        # fp8_einsum, which asserts sf_dtype is fp32/int (rejects E8M0).
++        # Upcast E8M0 scales to fp32 on load, exactly like the B12x kernel
++        # does. The base implementation (inherited by TritonFp8BlockScaledMMKernel)
++        # leaves the scales in E8M0, which is why --linear-backend triton
++        # failed while --linear-backend b12x worked.
++        super().process_weights_after_loading(layer)
++        params = self._get_layer_params(layer)
++        if params.weight_scale_inv is not None:
++            weight_scale = params.weight_scale_inv
++            scale_attr = params.WEIGHT_SCALE_INV
++        else:
++            weight_scale = params.weight_scale
++            scale_attr = params.WEIGHT_SCALE
++        if weight_scale is not None and weight_scale.dtype in (
++            torch.float8_e8m0fnu,
++            torch.uint8,
++        ):
++            replace_parameter(
++                layer,
++                scale_attr,
++                _upcast_e8m0_to_fp32(weight_scale).contiguous(),
++            )
++
+     def apply_block_scaled_mm(
+         self,
+         A: torch.Tensor,

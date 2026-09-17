@@ -1,0 +1,43 @@
+--- a/vllm/model_executor/kernels/linear/scaled_mm/marlin.py	2026-09-16 10:33:03.915380807 +0000
++++ b/vllm/model_executor/kernels/linear/scaled_mm/marlin.py	2026-09-16 10:32:57.474535031 +0000
+@@ -8,6 +8,7 @@
+ import vllm.envs as envs
+ from vllm.model_executor.layers.quantization.utils.fp8_utils import (
+     process_fp8_weight_block_strategy,
++    _upcast_e8m0_to_fp32,
+ )
+ from vllm.model_executor.layers.quantization.utils.marlin_utils_fp8 import (
+     apply_fp8_marlin_linear,
+@@ -64,6 +65,32 @@
+         return "weight_scale"
+ 
+     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
++        # DeepSeek-V4's attention o_proj (wo_a) is marked is_bmm=True and is
++        # consumed directly by deep_gemm_fp8_o_proj -> fp8_einsum, which reads
++        # wo_a.weight / wo_a.weight_scale_inv and requires the raw FP8 block
++        # layout (NOT the Marlin int32 repacked layout). Repacking it to Marlin
++        # breaks the einsum (shape assert in DeepGEMM einsum.hpp).
++        #
++        # So for is_bmm layers keep the raw FP8 weight and upcast the E8M0
++        # block scales to fp32 at load time, exactly like the b12x kernel --
++        # then fp8_einsum receives fp32 scales instead of float8_e8m0fnu (which
++        # it cannot bind) and the weight stays in the flat checkpoint layout.
++        if getattr(layer, "is_bmm", False):
++            scale_name = self._block_scale_name(layer)
++            weight, weight_scale = process_fp8_weight_block_strategy(
++                layer.weight, getattr(layer, scale_name)
++            )
++            # DeepSeek-V4 stores FP8 weight block scales as E8M0 (exponent-only;
++            # config: quantization_config.scale_fmt="ue8m0", expert_dtype="fp4").
++            # fp8_einsum needs fp32 scales, so upcast once at load time.
++            if weight_scale.dtype in (torch.float8_e8m0fnu, torch.uint8):
++                weight_scale = _upcast_e8m0_to_fp32(weight_scale).contiguous()
++            replace_parameter(layer, "weight", weight.data)
++            replace_parameter(layer, scale_name, weight_scale.data)
++            layer.input_scale = None
++            layer.input_scale_ub = None
++            return
++
+         if self.block_quant:
+             scale_name = self._block_scale_name(layer)
+             weight, weight_scale = process_fp8_weight_block_strategy(
