@@ -74,6 +74,7 @@ vllm serve ${MODEL} \
 --enable-prefix-caching \
 --async-scheduling \
 --enable-chunked-prefill \
+--long-prefill-token-threshold 1024 \
 --skip-mm-profiling \
 --limit-mm-per-prompt '{"image": 200}' \
 --tokenizer-mode deepseek_v4 \
