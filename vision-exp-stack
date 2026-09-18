@@ -42,6 +42,9 @@ FIX_LINEAR_MARLIN_O_PROJ=1
 FIX_LINEAR_TRITON_E8M0=0
 FIX_LINEAR_CUTLASS_E8M0=0
 
+FIX_TOOLCALL_ORPHAN_INVOKE=0      # PR #55954 / d98c8c0: parse invoke without <tool_calls> wrapper
+FIX_TOOLCALL_MISSPELLED_WRAPPER=0 # PR #56141 / 9e25706: tolerate <toolcalls>/<tool> misspellings
+
 
 serve_script() {
     cat <<EOF
@@ -120,6 +123,8 @@ build_apply_mod_args() {
     add_mod_arg_if_1 "$FIX_LINEAR_MARLIN_O_PROJ" fix-vllm-linear-marlin-o-proj
     add_mod_arg_if_1 "$FIX_LINEAR_TRITON_E8M0"   fix-vllm-linear-triton-e8m0
     add_mod_arg_if_1 "$FIX_LINEAR_CUTLASS_E8M0"  fix-vllm-linear-cutlass-e8m0
+    add_mod_arg_if_1 "$FIX_TOOLCALL_ORPHAN_INVOKE"        fix-dsv4-toolcall-orphan-invoke
+    add_mod_arg_if_1 "$FIX_TOOLCALL_MISSPELLED_WRAPPER"   fix-dsv4-toolcall-misspelled-wrapper
 
     printf '%s\n' "${mod_args[@]}"
 }

@@ -1,0 +1,124 @@
+--- a/vllm/parser/deepseek_v4.py
++++ b/vllm/parser/deepseek_v4.py
+@@ -50,6 +50,12 @@
+ DSML_PARAM_START = f"<{_DSML}parameter"
+ DSML_PARAM_CLOSE = f"</{_DSML}parameter>"
+ 
++# Spellings variants of ``DSML_TOOL_START`` observed in production.
++DSML_TOOL_START_VARIANTS: tuple[str, ...] = (
++    f"<{_DSML}toolcalls>",
++    f"<{_DSML}tool>",
++)
++
+ _ESCAPED_DSML = re.escape(_DSML)
+ _PARAM_RE = re.compile(
+     rf'<{_ESCAPED_DSML}parameter\s+name="([^"]+)"\s+string="(true|false)">'
+@@ -131,7 +137,7 @@ def deepseek_v4_config(thinking: bool = False) -> ParserEngineConfig:
+         terminals={
+             "THINK_START": DSML_THINK_START,
+             "THINK_END": DSML_THINK_END,
+-            "TOOL_START": DSML_TOOL_START,
++            "TOOL_START": (DSML_TOOL_START, *DSML_TOOL_START_VARIANTS),
+             "TOOL_END": DSML_TOOL_END,
+             "INVOKE_PREFIX": DSML_INVOKE_PREFIX,
+             "INVOKE_NAME_END": DSML_INVOKE_NAME_END,
+--- a/vllm/parser/engine/incremental_lexer.py
++++ b/vllm/parser/engine/incremental_lexer.py
+@@ -5,6 +5,7 @@
+ 
+ from __future__ import annotations
+ 
++from collections.abc import Mapping
+ from dataclasses import dataclass
+ 
+ import regex as re
+@@ -284,13 +285,16 @@ def _find_content_boundary(self) -> int:
+         return n
+ 
+ 
+-def terminals_from_literals(literals: dict[str, str]) -> list[TerminalDef]:
++def terminals_from_literals(
++    literals: Mapping[str, str | tuple[str, ...]],
++) -> list[TerminalDef]:
+     return [
+         TerminalDef(
+             name=name,
+             pattern=re.compile(re.escape(lit)),
+             is_literal=True,
+             literal=lit,
+         )
+-        for name, lit in literals.items()
++        for name, value in literals.items()
++        for lit in ((value,) if isinstance(value, str) else value)
+     ]
+--- a/vllm/parser/engine/parser_engine.py
++++ b/vllm/parser/engine/parser_engine.py
+@@ -158,11 +158,11 @@ def __init__(
+ 
+     @property
+     def reasoning_start_str(self) -> str | None:
+-        return self.parser_engine_config.terminals.get("THINK_START")
++        return self.parser_engine_config.terminal_literal("THINK_START")
+ 
+     @property
+     def reasoning_end_str(self) -> str | None:
+-        return self.parser_engine_config.terminals.get("THINK_END")
++        return self.parser_engine_config.terminal_literal("THINK_END")
+ 
+     @cached_property
+     def vocab(self) -> dict[str, int]:
+--- a/vllm/parser/engine/parser_engine_config.py
++++ b/vllm/parser/engine/parser_engine_config.py
+@@ -17,7 +17,7 @@
+ 
+ from __future__ import annotations
+ 
+-from collections.abc import Callable
++from collections.abc import Callable, Mapping
+ from dataclasses import dataclass, field
+ from enum import Enum, auto
+ from functools import cached_property
+@@ -54,7 +54,8 @@ class ParserEngineConfig:
+ 
+     name: str
+ 
+-    terminals: dict[str, str] = field(default_factory=dict)
++    # A terminal may carry several spellings; the first spelling is the canonical one.
++    terminals: Mapping[str, str | tuple[str, ...]] = field(default_factory=dict)
+ 
+     token_id_terminals: dict[str, str] = field(default_factory=dict)
+ 
+@@ -100,6 +101,22 @@ class ParserEngineConfig:
+     # Reject tool calls whose names are absent from the request tools.
+     validate_tool_names: bool = False
+ 
++    def terminal_literal(self, name: str) -> str | None:
++        """Canonical spelling of terminal *name*, or ``None`` if undeclared."""
++        value = self.terminals.get(name)
++        if isinstance(value, tuple):
++            return value[0] if value else None
++        return value
++
++    @property
++    def terminal_literals(self) -> frozenset[str]:
++        """Every declared spelling across all terminals."""
++        return frozenset(
++            lit
++            for value in self.terminals.values()
++            for lit in ((value,) if isinstance(value, str) else value)
++        )
++
+     @cached_property
+     def terminal_defs(self):
+         from vllm.parser.engine.incremental_lexer import terminals_from_literals
+--- a/vllm/parser/engine/streaming_parser_engine.py
++++ b/vllm/parser/engine/streaming_parser_engine.py
+@@ -51,7 +51,7 @@ def _build_drop_info(
+ 
+     configured_texts = (
+         set(config.token_id_terminals.values())
+-        | set(config.terminals.values())
++        | config.terminal_literals
+         | config.preserve_tokens
+     )
+ 
