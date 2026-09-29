@@ -115,12 +115,6 @@ ensure_launcher() {
     [[ -x "${LAUNCHER}" ]] || die "launcher missing after fetch"
 }
 
-is_model_cached() {
-    local rev; rev="$(resolve_model_revision)"
-    [[ "${rev}" =~ ^[0-9a-f]{40}$ ]] || return 1
-    [[ -d "${MODEL_REPO}/snapshots/${rev}" ]]
-}
-
 resolve_model_revision() {
     [[ "${MODEL_REVISION}" != "main" ]] && { printf '%s\n' "${MODEL_REVISION}"; return; }
     [[ -f "${MODEL_REPO}/refs/main" ]] && { cat "${MODEL_REPO}/refs/main"; return; }
@@ -146,17 +140,55 @@ EOF
 
 ensure_model() {
     ensure_hf
+    # hf writes to $HF_HOME/hub; keep it in step with MODEL_REPO
+    export HF_HOME="${HF_CACHE_DIR}"
     log "downloading ${MODEL} @ ${MODEL_REVISION}"
     hf download "${MODEL}" --revision "${MODEL_REVISION}" || die "model download failed"
 
-    [[ -z "${1:-}" ]] && is_model_cached || distribute_model
+    # Always sync: the head having the model says nothing about the workers, and
+    # rsync of an already-synced model is a quick metadata pass.
+    distribute_model
 }
 
+# huggingface_hub >= 1.x keeps the bytes in a shared content store (hub/blobs/..)
+# and the repo dir holds only relative symlinks into it, so rsyncing the repo dir
+# alone ships dangling links. Ship the repo dir plus exactly the blobs it references.
 distribute_model() {
-    local wip
+    local hub="${HF_CACHE_DIR}/hub" entry="models--${MODEL//\//--}"
+    local hub_real list wip
+    hub_real="$(cd "${hub}" && pwd -P)"
+    list="$(mktemp)"
+    {
+        printf '%s\n' "${entry}"
+        find "${MODEL_REPO}" -type l -exec readlink -f {} + \
+            | { grep "^${hub_real}/blobs/" || true; } | sed "s|^${hub_real}/||" | sort -u
+    } > "${list}"
+
     for wip in $(worker_hosts); do
-        log "rsync model -> ${wip}"
-        rsync -a "${MODEL_REPO}/" "${wip}:${MODEL_REPO}/"
+        log "rsync ${MODEL} -> ${wip} ($(( $(wc -l < "${list}") - 1 )) shared blobs)"
+        ssh -o ConnectTimeout=10 "${wip}" "mkdir -p '${hub}'" || { rm -f "${list}"; die "cannot reach ${wip}"; }
+        rsync -a -r --info=progress2 --files-from="${list}" "${hub}/" "${wip}:${hub}/" \
+            || { rm -f "${list}"; die "rsync to ${wip} failed"; }
+    done
+    rm -f "${list}"
+
+    verify_model
+}
+
+# Compare resolved snapshot bytes (following symlinks) and dangling-link counts
+# between the head and every worker; a snapshot of links without blobs fails here.
+verify_model() {
+    local snap; snap="${MODEL_REPO}/snapshots/$(resolve_model_revision)"
+    local probe='b=$(du -sbL "$1" 2>/dev/null | cut -f1); x=$(find "$1" -xtype l 2>/dev/null | wc -l); echo "${b:-0} ${x}"'
+    local hb hx wb wx wip
+
+    read -r hb hx <<< "$(bash -c "${probe}" _ "${snap}")"
+    [[ "${hb}" -gt 0 && "${hx}" == 0 ]] || die "head snapshot ${snap} incomplete (${hb} bytes, ${hx} broken links)"
+
+    for wip in $(worker_hosts); do
+        read -r wb wx <<< "$(ssh -o ConnectTimeout=10 "${wip}" "bash -c $(printf '%q' "${probe}") _ '${snap}'" 2>/dev/null || echo "0 unreachable")"
+        log "model check ${wip}: ${wb} bytes, ${wx} broken links (head: ${hb} bytes)"
+        [[ "${wb}" == "${hb}" && "${wx}" == 0 ]] || die "model on ${wip} differs from head, re-run heal"
     done
 }
 
